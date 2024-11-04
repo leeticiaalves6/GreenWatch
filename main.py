@@ -1,3 +1,4 @@
+import os
 from flask import Flask
 from flask_restful import Api, Resource, reqparse
 from flask_sqlalchemy import SQLAlchemy
@@ -38,7 +39,11 @@ class data_controller(Resource):
 
 def create_app():
     app = Flask(__name__)
-    app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///sensors.db"
+    
+    project_dir = os.path.abspath(os.path.dirname(__file__))
+    database_path = os.path.join(project_dir, "sensors.db")
+
+    app.config["SQLALCHEMY_DATABASE_URI"] = f"sqlite:///{database_path}"
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
     
     db.init_app(app)
