@@ -1,64 +1,81 @@
 import os
-from flask import Flask
-from flask_restful import Api, Resource, reqparse
-from flask_sqlalchemy import SQLAlchemy
-from flask_jwt_extended import JWTManager
+import uvicorn
 
-db = SQLAlchemy()
-jwt = JWTManager()
+from datetime import datetime
+from typing import List, Optional
+from fastapi import FastAPI, HTTPException, Depends, status
+from pydantic import BaseModel
+from sqlalchemy import Column, Integer, Float, DateTime, create_engine, func
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker, Session
+from fastapi.responses import JSONResponse
 
-class dbDataModel(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    umidade = db.Column(db.Float, nullable=False)
-    temperatura = db.Column(db.Float, nullable=False)
-    data = db.Column(db.DateTime, default=db.func.current_timestamp(), onupdate=db.func.current_timestamp()) 
+app = FastAPI()
 
-    def json(self):
-        return {
-            "id": self.id,
-            "umidade": self.umidade,
-            "temperatura": self.temperatura,
-            "data": self.data.strftime('%Y-%m-%dT%H:%M:%S') if self.data else None
-        }
+# Database
+Base = declarative_base()
 
-class data_controller(Resource):
-    argumentos = reqparse.RequestParser()
-    argumentos.add_argument('umidade')
-    argumentos.add_argument('temperatura')
+project_dir = os.path.abspath(os.path.dirname(__file__))
+database_path = os.path.join(project_dir, "sensors.db")
+DATABASE_URL = "sqlite:///./sensors.db"
+engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-    def get(self):
-        data = dbDataModel.query.all()
-        return [d.json() for d in data], 200
-
-    def post(self):
-        data = data_controller.argumentos.parse_args()
-        data = dbDataModel(**data)
-        db.session.add(data)
-        db.session.commit()
-        return data.json(), 201
-
-def create_app():
-    app = Flask(__name__)
+def get_utc_minus_3():
+    return datetime.utcnow() - timedelta(hours=3)
+  
+# Database Model
+class DBDataModel(Base):
+    __tablename__ = "sensor_data"
     
-    project_dir = os.path.abspath(os.path.dirname(__file__))
-    database_path = os.path.join(project_dir, "sensors.db")
+    id = Column(Integer, primary_key=True, index=True)
+    umidade = Column(Float, nullable=False)
+    temperatura = Column(Float, nullable=False)
+    data = Column(DateTime, default=get_utc_minus_3, onupdate=get_utc_minus_3)
 
-    app.config["SQLALCHEMY_DATABASE_URI"] = f"sqlite:///{database_path}"
-    app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+# Model de informações
+class SensorData(BaseModel):
+    id: Optional[int]
+    umidade: float
+    temperatura: float
+    data: Optional[datetime]
+
+    class Config:
+        orm_mode = True
+
+
+# Obter sessão do banco
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+@app.get('/')
+def home():
+  return 'GreenWatch'
+
+@app.get("/sensor_api", response_model=List[SensorData])
+def read_sensor_data(db: Session = Depends(get_db)):
+    data = db.query(DBDataModel).all()
+    return data
+
+@app.post("/sensor_api", response_model=SensorData, status_code=status.HTTP_201_CREATED)
+def create_sensor_data(data: SensorData, db: Session = Depends(get_db)):
+    db_data = DBDataModel(**data.dict(exclude_unset=True))
+    db.add(db_data)
+    db.commit()
+    db.refresh(db_data)
+    return db_data
+
+@app.on_event("startup")
+def on_startup():
+    # Cria tabelas
+    Base.metadata.create_all(bind=engine)
+    print("Tables created")
     
-    db.init_app(app)
-    jwt.init_app(app)
-    
-    api = Api(app)
-    api.add_resource(data_controller, '/sensor_api')
-
-    with app.app_context():
-        db.create_all() 
-        for rule in app.url_map.iter_rules():
-            print(f"Registered route: {rule}")
-
-    return app
 
 if __name__ == "__main__":
-    app = create_app()
-    app.run(host='0.0.0.0', port=5000, debug=True)
+  uvicorn.run(app)

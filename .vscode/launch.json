@@ -5,21 +5,15 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Depurador do Python: Flask",
+            "name": "Depurador do Python: FastAPI",
             "type": "debugpy",
             "request": "launch",
-            "module": "flask",
-            "env": {
-                "FLASK_APP": "app\\main.py",
-                "FLASK_DEBUG": "1"
-            },
+            "module": "uvicorn",
             "args": [
-                "run",
-                // "--no-debugger",
-                // "--no-reload"
+                "main:app",
+                "--reload"
             ],
-            "jinja": true,
-            "autoStartBrowser": false
+            "jinja": true
         }
     ]
 }
